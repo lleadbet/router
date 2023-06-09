@@ -1,10 +1,6 @@
 //! Authentication plugin
 // With regards to ELv2 licensing, this entire file is license key functionality
 
-use std::ops::ControlFlow;
-use std::str::FromStr;
-use std::time::Duration;
-
 use displaydoc::Display;
 use http::StatusCode;
 use jsonwebtoken::decode;
@@ -23,6 +19,9 @@ use once_cell::sync::Lazy;
 use reqwest::Client;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use std::ops::ControlFlow;
+use std::str::FromStr;
+use std::time::Duration;
 use thiserror::Error;
 use tower::BoxError;
 use tower::ServiceBuilder;
@@ -110,6 +109,9 @@ struct JWTConf {
     /// Header value prefix
     #[serde(default = "default_header_value_prefix")]
     header_value_prefix: String,
+    // Support for not verifying tokens
+    #[serde(default = "default_unsafe_no_verify")]
+    unsafe_no_verify: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -130,6 +132,7 @@ impl Default for JWTConf {
             jwks: Default::default(),
             header_name: default_header_name(),
             header_value_prefix: default_header_value_prefix(),
+            unsafe_no_verify: default_unsafe_no_verify(),
         }
     }
 }
@@ -150,6 +153,10 @@ fn default_header_name() -> String {
 
 fn default_header_value_prefix() -> String {
     "Bearer".to_string()
+}
+
+fn default_unsafe_no_verify() -> bool {
+    false
 }
 
 #[derive(Debug, Default)]
@@ -630,6 +637,26 @@ fn decode_jwt(
                     StatusCode::UNAUTHORIZED,
                 ))
             }
+        }
+    }
+}
+
+fn unsafe_decode_token(
+    jwt: &str,
+    validate_exp: bool,
+) -> Result<TokenData<serde_json::Value>, (AuthenticationError, StatusCode)> {
+    let mut validation = Validation::new(Algorithm::HS256); // have to provide an algorithm, so using HS256 as a placeholder
+    validation.insecure_disable_signature_validation();
+    validation.validate_exp = validate_exp;
+    validation.validate_nbf = validate_exp;
+    tracing::info!("attempting to decode");
+    match decode::<serde_json::Value>(jwt, &DecodingKey::from_secret(b""), &validation) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            return Err((
+                AuthenticationError::CannotDecodeJWT(e),
+                StatusCode::UNAUTHORIZED,
+            ));
         }
     }
 }
