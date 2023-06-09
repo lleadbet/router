@@ -114,9 +114,6 @@ struct JWTConf {
     // Support for not verifying tokens
     #[serde(default = "default_unsafe_no_verify")]
     unsafe_no_verify: bool,
-    // Support for not verifying tokens
-    #[serde(default = "default_unsafe_none_alg")]
-    unsafe_none_alg: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -138,7 +135,6 @@ impl Default for JWTConf {
             header_name: default_header_name(),
             header_value_prefix: default_header_value_prefix(),
             unsafe_no_verify: default_unsafe_no_verify(),
-            unsafe_none_alg: default_unsafe_none_alg(),
         }
     }
 }
@@ -165,9 +161,6 @@ fn default_unsafe_no_verify() -> bool {
     false
 }
 
-fn default_unsafe_none_alg() -> bool {
-    false
-}
 #[derive(Debug, Default)]
 struct JWTCriteria {
     alg: Algorithm,
