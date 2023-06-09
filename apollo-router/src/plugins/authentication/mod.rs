@@ -1,6 +1,10 @@
 //! Authentication plugin
 // With regards to ELv2 licensing, this entire file is license key functionality
 
+use std::ops::ControlFlow;
+use std::str::FromStr;
+use std::time::Duration;
+
 use displaydoc::Display;
 use http::StatusCode;
 use jsonwebtoken::decode;
@@ -19,9 +23,7 @@ use once_cell::sync::Lazy;
 use reqwest::Client;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::ops::ControlFlow;
-use std::str::FromStr;
-use std::time::Duration;
+
 use thiserror::Error;
 use tower::BoxError;
 use tower::ServiceBuilder;
@@ -112,6 +114,9 @@ struct JWTConf {
     // Support for not verifying tokens
     #[serde(default = "default_unsafe_no_verify")]
     unsafe_no_verify: bool,
+    // Support for not verifying tokens
+    #[serde(default = "default_unsafe_none_alg")]
+    unsafe_none_alg: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -133,6 +138,7 @@ impl Default for JWTConf {
             header_name: default_header_name(),
             header_value_prefix: default_header_value_prefix(),
             unsafe_no_verify: default_unsafe_no_verify(),
+            unsafe_none_alg: default_unsafe_none_alg(),
         }
     }
 }
@@ -159,6 +165,9 @@ fn default_unsafe_no_verify() -> bool {
     false
 }
 
+fn default_unsafe_none_alg() -> bool {
+    false
+}
 #[derive(Debug, Default)]
 struct JWTCriteria {
     alg: Algorithm,
@@ -493,6 +502,34 @@ fn authenticate(
         // We have our jwt
         jwt_parts[1]
     };
+
+    if config.unsafe_no_verify {
+        tracing::info!(message = %"", "jwt authentication unsafe mode no_verify");
+
+        let token_data = match unsafe_decode_token(jwt, false) {
+            Ok(data) => data,
+            Err((auth_error, status_code)) => {
+                return failure_message(request.context, auth_error, status_code);
+            }
+        };
+
+        if let Err(e) = request
+            .context
+            .insert(APOLLO_AUTHENTICATION_JWT_CLAIMS, token_data.claims)
+        {
+            return failure_message(
+                request.context,
+                AuthenticationError::CannotInsertClaimsIntoContext(e),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            );
+        }
+        // This is a metric and will not appear in the logs
+        tracing::info!(
+            monotonic_counter.apollo_authentication_success_count = 1u64,
+            kind = %AUTHENTICATION_KIND
+        );
+        return Ok(ControlFlow::Continue(request));
+    }
 
     // Try to create a valid header to work with
     let jwt_header = match decode_header(jwt) {
