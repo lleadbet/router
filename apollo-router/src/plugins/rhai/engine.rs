@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::SystemTime;
+use std::collections::HashMap;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::prelude::BASE64_STANDARD_NO_PAD;
@@ -192,6 +193,116 @@ mod router_sha256 {
         hex::encode(hash)
     }
 }
+
+#[export_module]
+mod router_regex {
+    pub(crate) type RhaiRegex = regex::Regex;
+
+    #[rhai_fn(return_raw)]
+    pub(crate) fn new_regex(pattern: &str) -> Result<RhaiRegex, Box<EvalAltResult>> {
+        regex::Regex::new(pattern)
+            .map(|regex| regex)
+            .map_err(|e| e.to_string().into())
+    }
+
+    #[rhai_fn(pure)]
+    pub(crate) fn is_match(regex: &mut RhaiRegex, text: &str) -> bool {
+        regex.is_match(text)
+    }
+
+    #[rhai_fn(pure, return_raw)]
+    pub fn find_first(regex: &mut RhaiRegex, text: &str) -> Result<String, Box<EvalAltResult>> {
+        regex.find(text)
+            .map(|m| m.as_str().to_string())
+            .ok_or("".into())
+    }
+
+    #[rhai_fn(pure, return_raw)]
+    pub(crate) fn replace(
+        regex: &mut RhaiRegex,
+        text: &str,
+        replace: &str,
+    ) -> Result<String, Box<EvalAltResult>> {
+        Ok(regex.replace_all(text, replace).to_string())
+    }
+
+    #[rhai_fn(pure, return_raw)]
+    pub(crate) fn matches(
+        regex: &mut RhaiRegex,
+        text: &str,
+    ) -> Result<Array, Box<EvalAltResult>> {
+        let mut captures = Array::new();
+        let Some(caps) = regex.captures(text) else {return Ok(captures)};
+        let names = regex.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
+        for cap in regex.captures_iter(text) {
+            let mut capture = Array::new();
+            for (i,m) in cap.iter().enumerate() {
+                if i == 0 {
+                    capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
+                    continue;
+                }
+                let mut group: std::collections::HashMap<std::string::String, std::string::String> = HashMap::new();
+                group.insert("name".to_string(), names[i].clone().into());
+                group.insert("value".to_string(), m.map_or("".to_string(), |m| m.as_str().to_string()).into());
+                capture.push(group.into());
+            }
+            captures.push(capture.into());
+        }
+        Ok(captures)
+    }
+}
+
+// #[derive(Clone, Debug)]
+// struct Regex {
+//     inner: regex::Regex,
+// }
+
+// impl Regex {
+//     fn new(pattern: &str) -> Result<Self, Box<EvalAltResult>> {
+//         regex::Regex::new(pattern)
+//             .map(|inner| Self { inner })
+//             .map_err(|e| e.to_string().into())
+//     }
+
+//     pub fn is_match(&self, text: &str) -> bool {
+//         self.inner.is_match(text)
+//     }
+
+//     pub fn find_first(&self, text: &str) -> Result<String, Box<EvalAltResult>> {
+//         self.inner
+//             .find(text)
+//             .map(|m| m.as_str().to_string())
+//             .ok_or("".into())
+//     }
+
+//     pub fn replace(&self, text: &str, replace: &str) -> Result<String, Box<EvalAltResult>> {
+//         Ok(self.inner.replace_all(text, replace).to_string())
+//     }
+
+//     pub fn matches(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
+//         let mut captures = Array::new();
+//         let Some(caps) = self.inner.captures(text) else {return Ok(captures)};
+//         eprintln!("caps: {:?}", caps);
+//         let names = self.inner.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
+//         eprintln!("names: {:?}", names);
+//         for cap in self.inner.captures_iter(text) {
+//             let mut capture = Array::new();
+//             eprintln!("cap: {:?}", cap);
+//             for (i,m) in cap.iter().enumerate() {
+//                 if i == 0 {
+//                     capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
+//                     continue;
+//                 }
+//                 let mut group: std::collections::HashMap<std::string::String, std::string::String> = HashMap::new();
+//                 group.insert("name".to_string(), names[i].clone().into());
+//                 group.insert("value".to_string(), m.map_or("".to_string(), |m| m.as_str().to_string()).into());
+//                 capture.push(group.into());
+//             }
+//             captures.push(capture.into());
+//         }
+//         Ok(captures)
+//     }
+// }
 
 #[export_module]
 mod router_expansion {
@@ -1711,6 +1822,7 @@ impl Rhai {
         let base64_module = exported_module!(router_base64);
         let json_module = exported_module!(router_json);
         let sha256_module = exported_module!(router_sha256);
+        let regex_module = exported_module!(router_regex);
 
         let expansion_module = exported_module!(router_expansion);
 
@@ -1739,6 +1851,8 @@ impl Rhai {
             .register_static_module("json", json_module.into())
             // Register our SHA256 module (not global)
             .register_static_module("sha256", sha256_module.into())
+            // Register our regex module (not global)
+            .register_static_module("regex", regex_module.into())
             // Register our expansion module (not global)
             // Hide the fact that it is an expansion module by calling it "env"
             .register_static_module("env", expansion_module.into())
