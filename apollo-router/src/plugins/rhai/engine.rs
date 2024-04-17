@@ -196,46 +196,78 @@ mod router_sha256 {
 
 #[export_module]
 mod router_regex {
-    pub(crate) type RhaiRegex = regex::Regex;
+    pub(crate) type RhaiRegex = RegexWrapper;
 
     #[rhai_fn(return_raw)]
     pub(crate) fn new_regex(pattern: &str) -> Result<RhaiRegex, Box<EvalAltResult>> {
-        regex::Regex::new(pattern)
-            .map(|regex| regex)
-            .map_err(|e| e.to_string().into())
+        RhaiRegex::new(pattern)
     }
 
+    // only function not set to global- will fail if not set
     #[rhai_fn(pure)]
     pub(crate) fn is_match(regex: &mut RhaiRegex, text: &str) -> bool {
         regex.is_match(text)
     }
 
-    #[rhai_fn(pure, return_raw)]
-    pub fn find_first(regex: &mut RhaiRegex, text: &str) -> Result<String, Box<EvalAltResult>> {
-        regex.find(text)
-            .map(|m| m.as_str().to_string())
-            .ok_or("".into())
+    #[rhai_fn(return_raw, global)]
+    pub(crate) fn find_first(regex: &mut RhaiRegex, text: &str) -> Result<String, Box<EvalAltResult>> {
+        regex.find_first(text)
     }
 
-    #[rhai_fn(pure, return_raw)]
+    #[rhai_fn(pure, return_raw, global)]
     pub(crate) fn replace(
         regex: &mut RhaiRegex,
         text: &str,
         replace: &str,
     ) -> Result<String, Box<EvalAltResult>> {
-        Ok(regex.replace_all(text, replace).to_string())
+        regex.replace(text, replace)
     }
 
-    #[rhai_fn(pure, return_raw)]
+    #[rhai_fn(pure, return_raw, global)]
     pub(crate) fn matches(
         regex: &mut RhaiRegex,
         text: &str,
     ) -> Result<Array, Box<EvalAltResult>> {
+        regex.matches(text)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RegexWrapper {
+    inner: regex::Regex,
+}
+
+impl RegexWrapper {
+    pub(crate) fn new(pattern: &str) -> Result<Self, Box<EvalAltResult>> {
+        regex::Regex::new(pattern)
+            .map(|inner| Self { inner })
+            .map_err(|e| e.to_string().into())
+    }
+
+    pub(crate) fn is_match(&self, text: &str) -> bool {
+        self.inner.is_match(text)
+    }
+
+    pub(crate) fn find_first(&self, text: &str) -> Result<String, Box<EvalAltResult>> {
+        self.inner
+            .find(text)
+            .map(|m| m.as_str().to_string())
+            .ok_or("".into())
+    }
+
+    pub(crate) fn replace(&self, text: &str, replace: &str) -> Result<String, Box<EvalAltResult>> {
+        Ok(self.inner.replace_all(text, replace).to_string())
+    }
+
+    pub(crate) fn matches(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
         let mut captures = Array::new();
-        let Some(caps) = regex.captures(text) else {return Ok(captures)};
-        let names = regex.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
-        for cap in regex.captures_iter(text) {
+        let Some(caps) = self.inner.captures(text) else {return Ok(captures)};
+        eprintln!("caps: {:?}", caps);
+        let names = self.inner.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
+        eprintln!("names: {:?}", names);
+        for cap in self.inner.captures_iter(text) {
             let mut capture = Array::new();
+            eprintln!("cap: {:?}", cap);
             for (i,m) in cap.iter().enumerate() {
                 if i == 0 {
                     capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
@@ -251,58 +283,6 @@ mod router_regex {
         Ok(captures)
     }
 }
-
-// #[derive(Clone, Debug)]
-// struct Regex {
-//     inner: regex::Regex,
-// }
-
-// impl Regex {
-//     fn new(pattern: &str) -> Result<Self, Box<EvalAltResult>> {
-//         regex::Regex::new(pattern)
-//             .map(|inner| Self { inner })
-//             .map_err(|e| e.to_string().into())
-//     }
-
-//     pub fn is_match(&self, text: &str) -> bool {
-//         self.inner.is_match(text)
-//     }
-
-//     pub fn find_first(&self, text: &str) -> Result<String, Box<EvalAltResult>> {
-//         self.inner
-//             .find(text)
-//             .map(|m| m.as_str().to_string())
-//             .ok_or("".into())
-//     }
-
-//     pub fn replace(&self, text: &str, replace: &str) -> Result<String, Box<EvalAltResult>> {
-//         Ok(self.inner.replace_all(text, replace).to_string())
-//     }
-
-//     pub fn matches(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
-//         let mut captures = Array::new();
-//         let Some(caps) = self.inner.captures(text) else {return Ok(captures)};
-//         eprintln!("caps: {:?}", caps);
-//         let names = self.inner.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
-//         eprintln!("names: {:?}", names);
-//         for cap in self.inner.captures_iter(text) {
-//             let mut capture = Array::new();
-//             eprintln!("cap: {:?}", cap);
-//             for (i,m) in cap.iter().enumerate() {
-//                 if i == 0 {
-//                     capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
-//                     continue;
-//                 }
-//                 let mut group: std::collections::HashMap<std::string::String, std::string::String> = HashMap::new();
-//                 group.insert("name".to_string(), names[i].clone().into());
-//                 group.insert("value".to_string(), m.map_or("".to_string(), |m| m.as_str().to_string()).into());
-//                 capture.push(group.into());
-//             }
-//             captures.push(capture.into());
-//         }
-//         Ok(captures)
-//     }
-// }
 
 #[export_module]
 mod router_expansion {
