@@ -1,9 +1,9 @@
+
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::SystemTime;
-use std::collections::HashMap;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::prelude::BASE64_STANDARD_NO_PAD;
@@ -203,17 +203,26 @@ mod router_regex {
         RhaiRegex::new(pattern)
     }
 
-    // only function not set to global- will fail if not set
-    #[rhai_fn(pure)]
+    #[rhai_fn(pure, global)]
     pub(crate) fn is_match(regex: &mut RhaiRegex, text: &str) -> bool {
         regex.is_match(text)
     }
 
     #[rhai_fn(return_raw, global)]
-    pub(crate) fn find_first(regex: &mut RhaiRegex, text: &str) -> Result<String, Box<EvalAltResult>> {
-        regex.find_first(text)
+    pub(crate) fn find_first(
+        regex: &mut RhaiRegex,
+        text: &str,
+    ) -> Result<String, Box<EvalAltResult>> {
+        regex.first_match(text)
     }
 
+    #[rhai_fn(return_raw, global)]
+    pub(crate) fn find_all(
+        regex: &mut RhaiRegex,
+        text: &str,
+    ) -> Result<Array, Box<EvalAltResult>> {
+        regex.all_matches(text)
+    }
     #[rhai_fn(pure, return_raw, global)]
     pub(crate) fn replace(
         regex: &mut RhaiRegex,
@@ -224,11 +233,17 @@ mod router_regex {
     }
 
     #[rhai_fn(pure, return_raw, global)]
-    pub(crate) fn matches(
-        regex: &mut RhaiRegex,
-        text: &str,
-    ) -> Result<Array, Box<EvalAltResult>> {
-        regex.matches(text)
+    pub(crate) fn captures(regex: &mut RhaiRegex, text: &str) -> Result<Array, Box<EvalAltResult>> {
+        regex.captures(text)
+    }
+
+    #[rhai_fn(pure, global)]
+    pub(crate) fn capture_names(regex: &mut RhaiRegex) -> Array {
+        regex
+            .capture_names()
+            .into_iter()
+            .map(|n| n.into())
+            .collect()
     }
 }
 
@@ -248,39 +263,42 @@ impl RegexWrapper {
         self.inner.is_match(text)
     }
 
-    pub(crate) fn find_first(&self, text: &str) -> Result<String, Box<EvalAltResult>> {
-        self.inner
-            .find(text)
-            .map(|m| m.as_str().to_string())
-            .ok_or("".into())
+    pub(crate) fn first_match(&self, text: &str) -> Result<String, Box<EvalAltResult>> {
+        match self.inner.find(text) {
+            Some(m) => Ok(m.as_str().to_string()),
+            None => Ok("".to_string()).into(),
+        }
+    }
+
+    pub(crate) fn all_matches(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
+        let mut matches = Array::new();
+        for m in self.inner.find_iter(text) {
+            matches.push(m.as_str().to_string().into());
+        }
+        Ok(matches)
+    }
+
+    pub(crate) fn captures(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
+        let mut captures = Array::new();
+        for cap in self.inner.captures_iter(text) {
+            let mut capture = Array::new();
+            for m in cap.iter() {
+                capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
+            }
+            captures.push(capture.into());
+        }
+        Ok(captures)
     }
 
     pub(crate) fn replace(&self, text: &str, replace: &str) -> Result<String, Box<EvalAltResult>> {
         Ok(self.inner.replace_all(text, replace).to_string())
     }
 
-    pub(crate) fn matches(&self, text: &str) -> Result<Array, Box<EvalAltResult>> {
-        let mut captures = Array::new();
-        let Some(caps) = self.inner.captures(text) else {return Ok(captures)};
-        eprintln!("caps: {:?}", caps);
-        let names = self.inner.capture_names().map(|n| n.unwrap_or("").to_string()).collect::<Vec<_>>();
-        eprintln!("names: {:?}", names);
-        for cap in self.inner.captures_iter(text) {
-            let mut capture = Array::new();
-            eprintln!("cap: {:?}", cap);
-            for (i,m) in cap.iter().enumerate() {
-                if i == 0 {
-                    capture.push(m.map_or("".to_string(), |m| m.as_str().to_string()).into());
-                    continue;
-                }
-                let mut group: std::collections::HashMap<std::string::String, std::string::String> = HashMap::new();
-                group.insert("name".to_string(), names[i].clone().into());
-                group.insert("value".to_string(), m.map_or("".to_string(), |m| m.as_str().to_string()).into());
-                capture.push(group.into());
-            }
-            captures.push(capture.into());
-        }
-        Ok(captures)
+    pub(crate) fn capture_names(&self) -> Vec<String> {
+        self.inner
+            .capture_names()
+            .map(|n| n.unwrap_or("").to_string())
+            .collect()
     }
 }
 
