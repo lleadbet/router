@@ -257,8 +257,9 @@ where
                             delay,
                         } => {
                             last_id = Some(id);
-                            uplink_config.poll_interval = Duration::from_secs(delay);
-
+                            // temp: don't reset the delay to be the delay from the uplink response
+                            // instead, rely on the delay set in the uplink config/arg
+                            // uplink_config.poll_interval = Duration::from_secs(delay);
                             if let Err(e) = sender.send(Ok(response)).await {
                                 tracing::debug!("failed to push to stream. This is likely to be because the router is shutting down: {e}");
                                 break;
@@ -269,9 +270,11 @@ where
                             if let Some(id) = id {
                                 last_id = Some(id);
                             }
-                            if let Some(delay) = delay {
-                                uplink_config.poll_interval = Duration::from_secs(delay);
-                            }
+                            // temp: don't reset the delay to be the delay from the uplink response
+                            // instead, rely on the delay set in the uplink config/arg
+                            // if let Some(delay) = delay {
+                            //     uplink_config.poll_interval = Duration::from_secs(delay);
+                            // }
                         }
                         UplinkResponse::Error {
                             retry_later,

@@ -473,8 +473,8 @@ impl Executable {
         license: Option<LicenseSource>,
         mut opt: Opt,
     ) -> Result<()> {
-        if opt.apollo_uplink_poll_interval < Duration::from_secs(10) {
-            return Err(anyhow!("apollo-uplink-poll-interval must be at least 10s"));
+        if opt.apollo_uplink_poll_interval < Duration::from_secs(1) {
+            return Err(anyhow!("apollo-uplink-poll-interval must be at least 1s"));
         }
         let current_directory = std::env::current_dir()?;
         // Enable hot reload when dev mode is enabled
